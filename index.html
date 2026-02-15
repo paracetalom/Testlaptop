@@ -296,6 +296,10 @@ font-size:14px;
 const URL="https://teachablemachine.withgoogle.com/models/EV-mbCqpx/";
 
 let model, webcam;
+let confidenceThreshold = 0.75;
+let lastPrediction = {};
+let smoothingFactor = 0.7; // ลดการแกว่ง
+
 let isCameraOn=false;
 let currentFacingMode="environment";
 let loopId=null;
@@ -346,7 +350,7 @@ else{ await startCamera(); }
 
 async function startCamera(){
 const flip=currentFacingMode==="user";
-webcam=new tmImage.Webcam(400,400,flip);
+webcam=new tmImage.Webcam(600,600,flip);
 await webcam.setup({facingMode:currentFacingMode});
 await webcam.play();
 document.getElementById("webcam-container").innerHTML="";
@@ -383,14 +387,47 @@ loopId=requestAnimationFrame(loop);
 }
 
 async function predict(){
-const prediction=await model.predict(webcam.canvas);
-prediction.forEach(p=>{
-const percent=Math.round(p.probability*100);
-const id=p.className.replace(/\s+/g,'');
-document.getElementById("bar-"+id).style.width=percent+"%";
-document.getElementById("text-"+id).innerText=percent+"%";
+
+const prediction = await model.predict(webcam.canvas);
+
+// หา class ที่ probability สูงสุด
+let maxPrediction = prediction.reduce((prev, current) =>
+    (prev.probability > current.probability) ? prev : current
+);
+
+// smoothing กันค่าแกว่ง
+prediction.forEach(p => {
+    if(!lastPrediction[p.className]){
+        lastPrediction[p.className] = p.probability;
+    }else{
+        lastPrediction[p.className] =
+            (smoothingFactor * lastPrediction[p.className]) +
+            ((1 - smoothingFactor) * p.probability);
+    }
 });
+
+// อัปเดต progress bar
+prediction.forEach(p => {
+
+    const smoothProb = lastPrediction[p.className];
+    const percent = Math.round(smoothProb * 100);
+    const id = p.className.replace(/\s+/g,'');
+
+    document.getElementById("bar-"+id).style.width = percent + "%";
+    document.getElementById("text-"+id).innerText = percent + "%";
+
+});
+
+// แสดงผลเฉพาะ class ที่ชนะและเกิน threshold
+if(maxPrediction.probability > confidenceThreshold){
+
+    console.log("Detected:", maxPrediction.className);
+
+}else{
+    console.log("ไม่มั่นใจในการทำนาย");
 }
+}
+
 
 function resetBars(){
 document.querySelectorAll(".progress-fill").forEach(e=>e.style.width="0%");
@@ -423,5 +460,6 @@ header.querySelector("span").innerText="-";
 </script>
 </body>
 </html>
+
 
 
